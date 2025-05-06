@@ -9,7 +9,17 @@ date: "2025-05-05"
 
 # Procesamiento y limpieza de datos GPS
 
-Esta sección describe el procesamiento y limpieza de los datos de localización GPS de perros registrados en Movebank. Se incorporan variables clave para el análisis del movimiento: coordenadas del punto anterior (`lon_prev`, `lat_prev`), tiempo del punto anterior (`time_prev`), distancia entre puntos consecutivos (`dist_m`), diferencia de tiempo entre puntos (`time_diff_s`), velocidad de desplazamiento entre puntos consecutivos (`speed_ms`), dirección del movimiento (`angle`) y cambio de dirección entre pasos (`angle_change`). Finalmente, se eliminan registros con valores faltantes o no válidos.
+En esta sección se ve el procesamiento y limpieza de los datos. También se incorporan variables clave para el análisis del movimiento:
+
+- Coordenadas del punto anterior (`lon_prev`, `lat_prev`)
+- Tiempo del punto anterior (`time_prev`)
+- Distancia entre puntos consecutivos (`dist_m`)
+- Diferencia de tiempo entre puntos (`time_diff_s`)
+- Velocidad de desplazamiento entre puntos consecutivos (`speed_ms`)
+- Dirección del movimiento (`angle`)
+- Cambio de dirección entre pasos (`angle_change`).
+
+Finalmente, se eliminan registros con valores faltantes o no válidos.
 
 ## 1. Carga de librerías
 
@@ -110,14 +120,14 @@ gps_data_clean <- gps_data_clean %>%
   filter(if_all(where(is.numeric), ~!is.na(.)))
 ```
 
-Volviendo al cálculo de los ángulos; para cada punto de localización GPS, se calcula el **ángulo de desplazamiento** utilizando la función `atan2()`. Este ángulo mide la dirección del movimiento del perro entre dos puntos consecutivos en el plano de coordenadas, en radianes, donde:
+Volviendo al cálculo de los ángulos; para cada punto de localización GPS, se calcula el **ángulo de desplazamiento (`angle`)** utilizando la función `atan2()`. Este ángulo mide la dirección del movimiento del perro entre dos puntos consecutivos en el plano de coordenadas, en radianes, donde:
 
-* Un valor cercano a 0 indica movimiento hacia el este.
+* Un valor cercano a 0 de `angle` indica movimiento hacia el este.
 * Un valor cercano a $\frac{\pi}{2}$ (90°) indica movimiento hacia el norte.
 
-Luego, se calcula el **cambio de ángulo** entre el movimiento actual y el anterior. Esto nos da el **cambio de dirección** o el giro entre dos puntos consecutivos:
+La principal utilidad de calcular el `angle` es para obtener el **cambio de ángulo** entre el movimiento actual y el anterior. Esto nos da el **cambio de dirección (`angle_change`)** o el giro entre dos puntos consecutivos:
 
-* Un valor cercano a 0 indica que el perro sigue una trayectoria recta.
+* Un valor cercano a 0de `angle_change` indica que el perro sigue una trayectoria recta.
 * Un valor alto indica que el perro ha cambiado de dirección.
 
 Visualicemos:
@@ -152,6 +162,7 @@ anim_angles
 ```
 
 En esta animación se puede visualizar los registros GPS del perro en un timepo acotado:
+
 - Se indican con flechas la dirección del movimiento calculada a partir del ángulo (angle).
 - Sobre cada punto se muestra el valor del cambio de dirección (`angle_change`) en radianes, que representa cuánto cambió el rumbo respecto al paso anterior
   - Valores cercanos a 0 indican trayectorias rectas
