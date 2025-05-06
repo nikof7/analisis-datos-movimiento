@@ -1,0 +1,163 @@
+---
+title: "Análisis movimiento"
+output: html_document
+date: "2025-05-05"
+---
+
+```{r}
+library(tidyverse)
+library(geosphere)  # para distancias geográficas
+library(leaflet)
+library(scales)
+library(sf)
+```
+
+# Filtrar y limpiar los puntos GPS 
+
+## Cargar datos
+
+```{r}
+gps_data_raw <- read.csv("data/puntos-perros-movebank.csv") %>% 
+  select(dog_id = tag.local.identifier, timestamp, lon = location.long, lat = location.lat) %>% 
+  mutate(timestamp = ymd_hms(timestamp)) %>% 
+  arrange(dog_id, timestamp)
+```
+
+## Agregrar variables
+
+```{r}
+gps_data_raw <- gps_data_raw %>%
+  group_by(dog_id) %>%
+  mutate(
+    lon_prev = lag(lon),
+    lat_prev = lag(lat),
+    time_prev = lag(timestamp),
+    dist_m = distHaversine(cbind(lon, lat), cbind(lon_prev, lat_prev)), # Distancia entre puntos consecutivos
+    time_diff_s = as.numeric(difftime(timestamp, time_prev, units = "secs")), # Tiempo entre puntos consecutivos
+    speed_ms = dist_m / time_diff_s) # Velocidad en metros/segundo.
+
+```
+
+
+```{r}
+gps_data_clean <- gps_data_raw %>%
+  group_by(dog_id) %>%
+  filter(is.na(speed_ms) | speed_ms < 10) %>% # Me quedo con velocidades de hasta 10 m/s
+  filter(is.finite(speed_ms))
+
+rm(gps_data_raw)
+```
+
+
+```{r}
+gps_data_clean <- gps_data_clean %>%
+  group_by(dog_id) %>%
+  mutate(
+    dist_total = cumsum(dist_m),
+    dist_recta = distHaversine(cbind(lon[1], lat[1]), cbind(lon, lat)),
+    sinuosity = dist_total / dist_recta)
+```
+
+```{r}
+gps_data_clean <- gps_data_clean %>%
+  group_by(dog_id) %>%
+  mutate(
+    angle = atan2(lat - lat_prev, lon - lon_prev),
+    angle_change = abs(angle - lag(angle))  # Cambio de ángulo entre puntos consecutivos
+  )
+```
+
+```{r}
+gps_data_clean <- gps_data_clean %>%
+  mutate(across(where(is.numeric), ~replace(., !is.finite(.) | is.na(.), NA))) %>%
+  filter(if_all(where(is.numeric), ~!is.na(.)))
+```
+
+## Cruce con datos de cobertura
+
+```{r}
+ambientes <- st_read("data/areadeestudio.gpkg")
+```
+
+
+```{r}
+gps_amb <- gps_data_clean %>%
+  filter(!is.na(lon), !is.na(lat)) %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) %>%   # CRS geográfico WGS84
+  st_transform(., crs = st_crs(ambientes)) %>% 
+  st_join(., ambientes) %>% 
+  select(-c(gid, X__gid, gridcode, id))
+```
+
+Hasta acá tenemos estas variables, todas calculadas por individuo:
+
+```{r}
+names(gps_amb)
+```
+
+
+# Visualización de datos
+
+```{r}
+gps_data_clean %>%
+  leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~lon, lat = ~lat,
+    radius = 3,
+    color = ~colorFactor(palette = "Set2", domain = gps_data_clean$dog_id)(dog_id),
+    popup = ~as.character(timestamp),
+    label = ~dog_id
+  )
+```
+
+
+```{r}
+gps_data_clean %>% filter(speed_ms > 0, speed_ms < 10) %>%
+  ggplot(., aes(x = speed_ms)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  scale_x_continuous(breaks = seq(0, 10, by = 1)) +  # más referencias
+  labs(x = "Velocidad (m/s)", y = "Frecuencia", title = "Velocidad por perro") +
+  facet_wrap(~ dog_id, scales = "free_y") +
+  theme_minimal()
+```
+
+Velocidad a lo largo del tiempo
+
+```{r}
+gps_data_clean %>%
+  ggplot(., aes(x = timestamp, y = dist_m)) +
+  geom_line() +
+  facet_wrap(~ dog_id, scales = "free_x") +
+  labs(x = "Tiempo", y = "Velocidad (m/s)") +
+  theme_minimal()
+```
+
+```{r}
+# Sinuosidad por tipo de uso del suelo
+gps_amb %>% filter(dog_id == "LG005") %>% 
+  ggplot(., aes(x = uso, y = sinuosity)) +
+  geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.3) +
+  labs(x = "Uso del suelo", y = "Índice de sinuosidad") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+```
+
+
+
+```{r}
+ggplot(gps_amb, aes(x = uso, y = speed_ms)) +
+  geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.3) +
+  facet_wrap(~dog_id) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  labs(x = "Uso del suelo", y = "Índice de sinuosidad")
+```
+
+```{r}
+model_speed <- lm(speed_ms ~ uso, data = gps_amb)
+summary(model_speed)
+```
+
+
+
