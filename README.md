@@ -2,6 +2,8 @@
 
 Este repositorio contiene un análisis exploratorio del movimiento de perros con GPS, con foco en cómo variables como la velocidad, la distancia recorrida, la sinuosidad de la trayectoria y el cambio de dirección varían según el tipo de ambiente donde se mueven.
 
+  [Click aquí para ver resultados]([www.google.com](https://nikof7.github.io/analisis-datos-movimiento/analisis-movimiento.html))
+
 ## Archivos incluidos
 
 * **`analisis-movimiento.Rmd`**
