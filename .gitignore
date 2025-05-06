@@ -1,0 +1,10 @@
+# Ignorar carpeta de datos
+data/
+
+# Ignorar carpeta del entorno de RStudio
+.Rproj.user/
+
+# Ignorar historial de R
+.Rhistory
+
+*.Rproj
