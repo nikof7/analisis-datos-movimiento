@@ -1,20 +1,35 @@
 ---
 title: "Análisis movimiento"
-output: html_document
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
 date: "2025-05-05"
 ---
 
-```{r}
-library(tidyverse)
-library(geosphere)  # para distancias geográficas
-library(leaflet)
-library(scales)
-library(sf)
+# Procesamiento y limpieza de datos GPS
+
+Esta sección describe el procesamiento y limpieza de los datos de localización GPS de perros registrados en Movebank. Se incorporan variables clave para el análisis del movimiento: coordenadas del punto anterior (`lon_prev`, `lat_prev`), tiempo del punto anterior (`time_prev`), distancia entre puntos consecutivos (`dist_m`), diferencia de tiempo entre puntos (`time_diff_s`), velocidad de desplazamiento entre puntos consecutivos (`speed_ms`), dirección del movimiento (`angle`) y cambio de dirección entre pasos (`angle_change`). Finalmente, se eliminan registros con valores faltantes o no válidos.
+
+## 1. Carga de librerías
+
+Se cargan los paquetes necesarios.
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)  # Preparación y manipulación de datos
+library(geosphere)  # Calcular distancias geográficas
+library(leaflet)    # Visualizar los puntos en mapas interactivos
+library(scales)     # Formatear escalas
+library(sf)         # Manejar objetos espaciales (Simple Features)
+library(rmarkdown)  # Generación del HTML para visualizar el código, graficos, tablas, etc.
+library(gganimate)  # Animaciones
 ```
 
-# Filtrar y limpiar los puntos GPS 
+---
 
-## Cargar datos
+## 2. Carga y preprocesamiento de los datos
+
+Se importa el archivo `.csv` con los puntos GPS y se renombran las columnas para mayor claridad. Además, se convierten las fechas a formato `POSIXct` y se ordenan los registros cronológicamente para cada perro.
 
 ```{r}
 gps_data_raw <- read.csv("data/puntos-perros-movebank.csv") %>% 
@@ -23,7 +38,11 @@ gps_data_raw <- read.csv("data/puntos-perros-movebank.csv") %>%
   arrange(dog_id, timestamp)
 ```
 
-## Agregrar variables
+---
+
+## 3. Cálculo de variables espaciales y temporales
+
+Se agregan variables útiles para el análisis del movimiento.
 
 ```{r}
 gps_data_raw <- gps_data_raw %>%
@@ -32,40 +51,58 @@ gps_data_raw <- gps_data_raw %>%
     lon_prev = lag(lon),
     lat_prev = lag(lat),
     time_prev = lag(timestamp),
-    dist_m = distHaversine(cbind(lon, lat), cbind(lon_prev, lat_prev)), # Distancia entre puntos consecutivos
-    time_diff_s = as.numeric(difftime(timestamp, time_prev, units = "secs")), # Tiempo entre puntos consecutivos
-    speed_ms = dist_m / time_diff_s) # Velocidad en metros/segundo.
-
+    dist_m = distHaversine(cbind(lon, lat), cbind(lon_prev, lat_prev)),  # Distancia entre puntos consecutivos en metros
+    time_diff_s = as.numeric(difftime(timestamp, time_prev, units = "secs")),  # Diferencia de tiempo en segundos
+    speed_ms = dist_m / time_diff_s  # Velocidad en metros por segundo
+  )
 ```
 
+* **`lon_prev` y `lat_prev`**:
+  Estas variables guardan la longitud (`lon_prev`) y latitud (`lat_prev`) del punto anterior para cada perro.
+
+* **`time_prev`**:
+  Almacena la marca de tiempo (`timestamp`) del punto anterior, permitiendo calcular la duración entre posiciones sucesivas.
+
+* **`dist_m`**:
+  Representa la distancia en metros entre el punto actual y el anterior, calculada usando la fórmula de Haversine (`distHaversine()` del paquete `geosphere`), que estima la distancia entre dos coordenadas geográficas sobre la superficie de la Tierra.
+
+* **`time_diff_s`**:
+  Es la diferencia de tiempo entre el punto actual y el anterior, medida en segundos.
+
+* **`speed_ms`**:
+  Esta es la velocidad entre dos puntos consecutivos, expresada en metros por segundo. Se obtiene dividiendo la distancia recorrida (`dist_m`) entre el tiempo transcurrido (`time_diff_s`).
+
+---
+
+## 4. Limpieza de registros con velocidad anómala
+
+Se filtran los registros con velocidades irreales para un perro doméstico (> 10 m/s) o no definidas (`NA` o infinitos). Esto ayuda a eliminar errores de GPS u otras inconsistencias en el registro.
 
 ```{r}
 gps_data_clean <- gps_data_raw %>%
   group_by(dog_id) %>%
-  filter(is.na(speed_ms) | speed_ms < 10) %>% # Me quedo con velocidades de hasta 10 m/s
+  filter(is.na(speed_ms) | speed_ms > 0, speed_ms < 10) %>% 
   filter(is.finite(speed_ms))
 
-rm(gps_data_raw)
+rm(gps_data_raw)  # Libera memoria eliminando el dataset original
 ```
 
+---
+
+## 5. Cálculo del ángulo de movimiento y su cambio
+
+Se calcula el ángulo de movimiento entre puntos consecutivos, así como el cambio de dirección (variación de ángulo) entre cada paso.
 
 ```{r}
 gps_data_clean <- gps_data_clean %>%
   group_by(dog_id) %>%
   mutate(
-    dist_total = cumsum(dist_m),
-    dist_recta = distHaversine(cbind(lon[1], lat[1]), cbind(lon, lat)),
-    sinuosity = dist_total / dist_recta)
-```
-
-```{r}
-gps_data_clean <- gps_data_clean %>%
-  group_by(dog_id) %>%
-  mutate(
-    angle = atan2(lat - lat_prev, lon - lon_prev),
-    angle_change = abs(angle - lag(angle))  # Cambio de ángulo entre puntos consecutivos
+    angle = atan2(lat - lat_prev, lon - lon_prev),  # Ángulo de desplazamiento
+    angle_change = abs(angle - lag(angle))  # Cambio absoluto de ángulo
   )
 ```
+
+También se reemplazan todos los valores `NA` o infinitos por `NA`, y luego se eliminan todas las filas que tengan al menos un valor numérico faltante.
 
 ```{r}
 gps_data_clean <- gps_data_clean %>%
@@ -73,12 +110,70 @@ gps_data_clean <- gps_data_clean %>%
   filter(if_all(where(is.numeric), ~!is.na(.)))
 ```
 
-## Cruce con datos de cobertura
+Volviendo al cálculo de los ángulos; para cada punto de localización GPS, se calcula el **ángulo de desplazamiento** utilizando la función `atan2()`. Este ángulo mide la dirección del movimiento del perro entre dos puntos consecutivos en el plano de coordenadas, en radianes, donde:
 
-```{r}
+* Un valor cercano a 0 indica movimiento hacia el este.
+* Un valor cercano a $\frac{\pi}{2}$ (90°) indica movimiento hacia el norte.
+
+Luego, se calcula el **cambio de ángulo** entre el movimiento actual y el anterior. Esto nos da el **cambio de dirección** o el giro entre dos puntos consecutivos:
+
+* Un valor cercano a 0 indica que el perro sigue una trayectoria recta.
+* Un valor alto indica que el perro ha cambiado de dirección.
+
+Visualicemos:
+
+```{r warning=FALSE, message=FALSE}
+plot_anim <- gps_data_clean %>%
+  filter(dog_id == "LG005",
+         timestamp > ymd_hms("2024-10-12 06:00:00"),
+         timestamp < ymd_hms("2024-10-12 07:00:00")) %>%
+  ggplot(aes(x = lon, y = lat)) +
+  geom_path(color = "grey70") +
+  geom_segment(aes(xend = lon + cos(angle) * 0.001,
+                   yend = lat + sin(angle) * 0.001),
+               arrow = arrow(length = unit(0.2, "cm")),
+               color = "blue", size = 1) +
+  geom_text(aes(label = round(angle_change, 2)), size = 3, vjust = -1) +
+  labs(title = "Dirección de movimiento y cambio de dirección (radianes)",
+       x = "Longitud", y = "Latitud") +
+  theme_minimal() +
+  coord_fixed() +
+  transition_reveal(timestamp)
+
+
+# anim_save("trayectoria_animada.gif",
+#          plot_anim, 
+#          renderer = gifski_renderer(),
+#          nframes = 200,       # Aumenta los frames (más lento)
+#          fps = 5)            # Reduce los frames por segundo (más lento)
+
+anim_angles <- animate(plot_anim, nframes = 100, fps = 5, renderer = gifski_renderer())
+anim_angles
+```
+
+En esta animación se puede visualizar los registros GPS del perro en un timepo acotado:
+- Se indican con flechas la dirección del movimiento calculada a partir del ángulo (angle).
+- Sobre cada punto se muestra el valor del cambio de dirección (`angle_change`) en radianes, que representa cuánto cambió el rumbo respecto al paso anterior
+  - Valores cercanos a 0 indican trayectorias rectas
+  - Valores más altos señalan giros o cambios bruscos de dirección.
+  
+---
+
+## Cruce con datos de cobertura del ambiente
+
+En esta sección, se integran los datos de localización GPS con información espacial de coberturas del ambiente. Esto permite asignar a cada punto GPS un tipo de cobertura o uso del suelo (por ejemplo, pastizal, monte, plantación).
+
+### Lectura de los datos espaciales de cobertura
+
+```{r, warning=FALSE, message=FALSE}
 ambientes <- st_read("data/areadeestudio.gpkg")
 ```
 
+Se carga un archivo vectorial en formato GeoPackage (`.gpkg`) que contiene las unidades espaciales con sus respectivas clases de cobertura. Este archivo representa el área de estudio con la información ambiental necesaria para el análisis.
+
+---
+
+### Conversión de puntos GPS a objetos espaciales y cruce con las coberturas
 
 ```{r}
 gps_amb <- gps_data_clean %>%
@@ -89,14 +184,27 @@ gps_amb <- gps_data_clean %>%
   select(-c(gid, X__gid, gridcode, id))
 ```
 
-Hasta acá tenemos estas variables, todas calculadas por individuo:
+* **`st_transform(., crs = st_crs(ambientes))`**:
+  Transforma las coordenadas al mismo sistema de referencia que el archivo de cobertura ambiental, para que puedan cruzarse correctamente.
+
+* **`st_join(., ambientes)`**:
+  Realiza una unión espacial, asignando a cada punto GPS la clase de cobertura en la que se encuentra.
+
+---
+
+### Visualización de la tabla resultante
 
 ```{r}
-names(gps_amb)
+paged_table(head(gps_amb))
 ```
 
+---
 
 # Visualización de datos
+
+En esta sección se presentan una visualización exploratoria.
+
+Primero, se genera un mapa interactivo con leaflet que muestra todos los registros GPS. Cada punto representa una ubicación y está coloreado según el `id` del perro correspondiente. Al hacer clic en un punto, se puede ver el timestamp asociado al registro.
 
 ```{r}
 gps_data_clean %>%
@@ -111,39 +219,42 @@ gps_data_clean %>%
   )
 ```
 
+A continuación, se presenta un histograma de las velocidades calculadas para cada perro. Esto permite observar la distribución de velocidades y posibles diferencias entre individuos.
 
 ```{r}
-gps_data_clean %>% filter(speed_ms > 0, speed_ms < 10) %>%
+gps_data_clean %>%
   ggplot(., aes(x = speed_ms)) +
   geom_histogram(bins = 50, fill = "steelblue", color = "white") +
   scale_x_continuous(breaks = seq(0, 10, by = 1)) +  # más referencias
-  labs(x = "Velocidad (m/s)", y = "Frecuencia", title = "Velocidad por perro") +
+  labs(x = "Velocidad del paso (m/s)", y = "Frecuencia") +
   facet_wrap(~ dog_id, scales = "free_y") +
   theme_minimal()
 ```
 
-Velocidad a lo largo del tiempo
+Luego, se grafican las distancias recorridas entre puntos consecutivos a lo largo del tiempo para cada perro.
 
 ```{r}
 gps_data_clean %>%
   ggplot(., aes(x = timestamp, y = dist_m)) +
   geom_line() +
   facet_wrap(~ dog_id, scales = "free_x") +
-  labs(x = "Tiempo", y = "Velocidad (m/s)") +
+  labs(x = "Tiempo", y = "Distancia del paso (m)") +
   theme_minimal()
 ```
 
+También se explora la relación entre el entorno y el comportamiento de movimiento. En el siguiente gráfico se muestra cómo varía el cambio de dirección (angle_change) según el uso del suelo, lo que podría indicar cambios de trayectoria asociados a distintos ambientes.
+
 ```{r}
-# Sinuosidad por tipo de uso del suelo
-gps_amb %>% filter(dog_id == "LG005") %>% 
-  ggplot(., aes(x = uso, y = sinuosity)) +
+gps_amb %>% 
+  ggplot(., aes(x = uso, y = angle_change)) +
   geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.3) +
-  labs(x = "Uso del suelo", y = "Índice de sinuosidad") +
+  facet_wrap(~ dog_id, scales = "free_y") +
+  labs(x = "Uso del suelo", y = "Cambio de ángulo entre puntos consecutivos") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
-
+Finalmente, se compara la velocidad de movimiento en los distintos tipos de cobertura del suelo para cada perro. Esto puede ayudar a identificar si ciertos ambientes permiten o restringen el movimiento.
 
 ```{r}
 ggplot(gps_amb, aes(x = uso, y = speed_ms)) +
@@ -151,12 +262,7 @@ ggplot(gps_amb, aes(x = uso, y = speed_ms)) +
   facet_wrap(~dog_id) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  labs(x = "Uso del suelo", y = "Índice de sinuosidad")
-```
-
-```{r}
-model_speed <- lm(speed_ms ~ uso, data = gps_amb)
-summary(model_speed)
+  labs(x = "Uso del suelo", y = "Velocidad ")
 ```
 
 
