@@ -9,17 +9,7 @@ date: "2025-05-05"
 
 # Procesamiento y limpieza de datos GPS
 
-En esta sección se ve el procesamiento y limpieza de los datos. También se incorporan variables clave para el análisis del movimiento:
-
-- Coordenadas del punto anterior (`lon_prev`, `lat_prev`)
-- Tiempo del punto anterior (`time_prev`)
-- Distancia entre puntos consecutivos (`dist_m`)
-- Diferencia de tiempo entre puntos (`time_diff_s`)
-- Velocidad de desplazamiento entre puntos consecutivos (`speed_ms`)
-- Dirección del movimiento (`angle`)
-- Cambio de dirección entre pasos (`angle_change`).
-
-Finalmente, se eliminan registros con valores faltantes o no válidos.
+En esta sección se ve el procesamiento y limpieza de los datos. También se incorporan variables clave para el análisis del movimiento.
 
 ## 1. Carga de librerías
 
@@ -167,7 +157,7 @@ En esta animación se puede visualizar los registros GPS del perro en un timepo 
 - Sobre cada punto se muestra el valor del cambio de dirección (`angle_change`) en radianes, que representa cuánto cambió el rumbo respecto al paso anterior
   - Valores cercanos a 0 indican trayectorias rectas
   - Valores más altos señalan giros o cambios bruscos de dirección.
-  
+
 ---
 
 ## Cruce con datos de cobertura del ambiente
@@ -230,7 +220,7 @@ gps_data_clean %>%
   )
 ```
 
-A continuación, se presenta un histograma de las velocidades calculadas para cada perro. Esto permite observar la distribución de velocidades y posibles diferencias entre individuos.
+A continuación, se presenta un histograma de las velocidades calculadas para cada perro.
 
 ```{r}
 gps_data_clean %>%
@@ -253,7 +243,7 @@ gps_data_clean %>%
   theme_minimal()
 ```
 
-También se explora la relación entre el entorno y el comportamiento de movimiento. En el siguiente gráfico se muestra cómo varía el cambio de dirección (angle_change) según el uso del suelo, lo que podría indicar cambios de trayectoria asociados a distintos ambientes.
+También se explora la relación entre el ambiente y el comportamiento de movimiento. En el siguiente gráfico se muestra cómo varía el cambio de dirección (angle_change) según el tipo de ambiente donde está.
 
 ```{r}
 gps_amb %>% 
@@ -265,7 +255,7 @@ gps_amb %>%
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
-Finalmente, se compara la velocidad de movimiento en los distintos tipos de cobertura del suelo para cada perro. Esto puede ayudar a identificar si ciertos ambientes permiten o restringen el movimiento.
+Finalmente, se compara la velocidad de movimiento en los distintos tipos de cobertura del suelo para cada perro.
 
 ```{r}
 ggplot(gps_amb, aes(x = uso, y = speed_ms)) +
@@ -275,6 +265,17 @@ ggplot(gps_amb, aes(x = uso, y = speed_ms)) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   labs(x = "Uso del suelo", y = "Velocidad ")
 ```
+
+# Resumen
+
+- Coordenadas del punto anterior (`lon_prev`, `lat_prev`).
+- Tiempo del punto anterior (`time_prev`).
+- Distancia entre puntos consecutivos (`dist_m`).
+- Diferencia de tiempo entre puntos (`time_diff_s`).
+- Velocidad de desplazamiento entre puntos consecutivos (`speed_ms`).
+- Dirección del movimiento (`angle`).
+- Cambio de dirección entre pasos (`angle_change`).
+- Tipos de cobertura del suelo (`uso`).
 
 
 
